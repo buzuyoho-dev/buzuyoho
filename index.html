@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>バズ予報 — 日本語YouTuberのためのAIバズ発見ツール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0f; --bg2: #12121a; --bg3: #1a1a26;
+    --accent: #7c6dfa; --accent2: #fa6d8e; --accent3: #6dfab3;
+    --text: #e8e6f0; --text2: #9490b0; --text3: #5a5870;
+    --border: rgba(124,109,250,0.18); --border2: rgba(255,255,255,0.06);
+  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: 'Noto Sans JP', sans-serif; font-weight: 300; line-height: 1.7; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"); opacity: 0.4; pointer-events: none; z-index: 0; }
+  .bg-orb { position: fixed; border-radius: 50%; filter: blur(120px); pointer-events: none; z-index: 0; }
+  .orb1 { width: 600px; height: 600px; top: -200px; left: -200px; background: radial-gradient(circle, rgba(124,109,250,0.12) 0%, transparent 70%); }
+  .orb2 { width: 500px; height: 500px; bottom: 20%; right: -150px; background: radial-gradient(circle, rgba(250,109,142,0.08) 0%, transparent 70%); }
+  .orb3 { width: 400px; height: 400px; top: 50%; left: 40%; background: radial-gradient(circle, rgba(109,250,179,0.06) 0%, transparent 70%); }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+  /* NAV */
+  nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 16px 0; background: rgba(10,10,15,0.7); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border2); }
+  .nav-inner { max-width: 1100px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-family: 'DM Mono', monospace; font-size: 16px; font-weight: 500; color: var(--text); letter-spacing: -0.02em; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 12px var(--accent)} 50%{opacity:.6;box-shadow:0 0 4px var(--accent)} }
+  .nav-cta { display: flex; align-items: center; gap: 12px; }
+  .nav-cta a { font-size: 13px; color: var(--text2); text-decoration: none; }
+  .nav-cta a:hover { color: var(--text); }
+  .nav-btn { background: var(--accent) !important; color: #fff !important; padding: 7px 16px; border-radius: 8px; font-size: 13px !important; font-weight: 500; transition: background 0.2s; }
+  .nav-btn:hover { background: #6b5de8 !important; }
+
+  /* HERO */
+  .hero { min-height: 100vh; display: flex; align-items: center; padding: 120px 0 80px; }
+  .hero-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--accent); background: rgba(124,109,250,0.08); border: 1px solid rgba(124,109,250,0.25); padding: 5px 12px; border-radius: 99px; margin-bottom: 20px; letter-spacing: 0.05em; }
+  .eyebrow::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  h1 { font-size: clamp(36px, 5vw, 60px); font-weight: 700; line-height: 1.15; letter-spacing: -0.03em; color: var(--text); margin-bottom: 20px; }
+  h1 .line2 { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero-desc { font-size: 17px; color: var(--text2); line-height: 1.8; margin-bottom: 36px; max-width: 480px; }
+  .hero-desc strong { color: var(--text); font-weight: 500; }
+  .cta-group { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn-primary { display: inline-flex; align-items: center; gap: 8px; padding: 14px 28px; background: var(--accent); color: #fff; font-family: 'Noto Sans JP', sans-serif; font-size: 15px; font-weight: 500; border-radius: 10px; text-decoration: none; border: none; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 30px rgba(124,109,250,0.3); }
+  .btn-primary:hover { background: #6b5de8; transform: translateY(-1px); box-shadow: 0 0 40px rgba(124,109,250,0.45); }
+  .btn-secondary { display: inline-flex; align-items: center; gap: 8px; padding: 14px 28px; background: transparent; color: var(--text2); font-family: 'Noto Sans JP', sans-serif; font-size: 15px; border-radius: 10px; text-decoration: none; border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+  .btn-secondary:hover { color: var(--text); border-color: rgba(124,109,250,0.4); }
+
+  /* MOCKUP */
+  .mockup-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 20px; position: relative; overflow: hidden; }
+  .mockup-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+  .mockup-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border2); }
+  .mockup-dots { display: flex; gap: 5px; }
+  .mockup-dots span { width: 10px; height: 10px; border-radius: 50%; }
+  .mockup-dots span:nth-child(1){background:#ff5f57} .mockup-dots span:nth-child(2){background:#ffbd2e} .mockup-dots span:nth-child(3){background:#28ca41}
+  .mockup-title { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text3); }
+  .mockup-input-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .mockup-input { flex: 1; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 9px 14px; font-size: 13px; font-family: 'Noto Sans JP', sans-serif; color: var(--text2); }
+  .mockup-btn { background: var(--accent); border: none; border-radius: 8px; padding: 9px 16px; font-size: 12px; color: #fff; font-family: 'Noto Sans JP', sans-serif; cursor: pointer; white-space: nowrap; }
+  .result-item { background: var(--bg3); border: 1px solid var(--border2); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; position: relative; overflow: hidden; animation: slideIn 0.4s ease forwards; opacity: 0; }
+  .result-item:nth-child(1){animation-delay:.1s} .result-item:nth-child(2){animation-delay:.25s} .result-item:nth-child(3){animation-delay:.4s}
+  @keyframes slideIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  .result-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; }
+  .result-item:nth-child(1)::before{background:var(--accent)} .result-item:nth-child(2)::before{background:var(--accent2)} .result-item:nth-child(3)::before{background:var(--accent3)}
+  .result-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .result-title { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.4; }
+  .result-badge { font-size: 10px; font-family: 'DM Mono', monospace; padding: 2px 7px; border-radius: 99px; flex-shrink: 0; margin-left: 8px; }
+  .badge-hot{background:rgba(250,109,142,0.15);color:var(--accent2);border:1px solid rgba(250,109,142,0.25)}
+  .badge-new{background:rgba(109,250,179,0.12);color:var(--accent3);border:1px solid rgba(109,250,179,0.2)}
+  .badge-viral{background:rgba(124,109,250,0.12);color:var(--accent);border:1px solid rgba(124,109,250,0.2)}
+  .result-meta { font-size: 11px; color: var(--text3); font-family: 'DM Mono', monospace; }
+
+  /* STATS */
+  .stats-strip { padding: 60px 0; border-top: 1px solid var(--border2); border-bottom: 1px solid var(--border2); }
+  .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); }
+  .stat-item { text-align: center; padding: 20px; border-right: 1px solid var(--border2); }
+  .stat-item:last-child { border-right: none; }
+  .stat-num { font-size: 36px; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; display: block; }
+  .stat-label { font-size: 13px; color: var(--text2); margin-top: 4px; }
+
+  /* SECTIONS */
+  .section { padding: 100px 0; }
+  .section-eyebrow { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px; }
+  h2 { font-size: clamp(28px,3.5vw,44px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; margin-bottom: 16px; }
+  .section-desc { font-size: 17px; color: var(--text2); max-width: 520px; line-height: 1.8; margin-bottom: 60px; }
+  .features-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; }
+  .feature-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: 14px; padding: 28px; transition: border-color 0.2s, transform 0.2s; }
+  .feature-card:hover { border-color: var(--border); transform: translateY(-2px); }
+  .feature-icon { font-size: 28px; margin-bottom: 14px; display: block; }
+  .feature-title { font-size: 17px; font-weight: 500; color: var(--text); margin-bottom: 8px; }
+  .feature-desc { font-size: 14px; color: var(--text2); line-height: 1.7; }
+
+  /* 사전 가입 섹션 */
+  .early-section { padding: 100px 0; }
+  .early-inner { background: var(--bg2); border: 1px solid var(--border); border-radius: 24px; padding: 64px; position: relative; overflow: hidden; text-align: center; }
+  .early-inner::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), var(--accent2), transparent); }
+  .early-glow { position: absolute; top: -100px; left: 50%; transform: translateX(-50%); width: 500px; height: 300px; background: radial-gradient(ellipse, rgba(124,109,250,0.1) 0%, transparent 70%); pointer-events: none; }
+  .early-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--accent2); background: rgba(250,109,142,0.08); border: 1px solid rgba(250,109,142,0.25); padding: 5px 14px; border-radius: 99px; margin-bottom: 24px; }
+  .early-tag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); animation: pulse 1.5s ease-in-out infinite; }
+  .early-inner h2 span { background: linear-gradient(135deg, var(--accent2), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .early-sub { font-size: 17px; color: var(--text2); line-height: 1.8; margin-bottom: 40px; max-width: 540px; margin-left: auto; margin-right: auto; }
+  .benefits-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 48px; }
+  .benefit-card { background: var(--bg3); border: 1px solid var(--border2); border-radius: 14px; padding: 24px 18px; text-align: center; transition: border-color 0.2s; }
+  .benefit-card:hover { border-color: var(--border); }
+  .benefit-num { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--accent); margin-bottom: 10px; letter-spacing: 0.08em; }
+  .benefit-icon { font-size: 28px; margin-bottom: 10px; display: block; }
+  .benefit-title { font-size: 15px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+  .benefit-desc { font-size: 13px; color: var(--text2); line-height: 1.6; }
+  .benefit-highlight { display: inline-block; margin-top: 8px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--accent3); background: rgba(109,250,179,0.08); border: 1px solid rgba(109,250,179,0.2); padding: 3px 10px; border-radius: 99px; }
+  .counter-row { display: flex; justify-content: center; gap: 40px; margin-bottom: 36px; }
+  .counter-item { text-align: center; }
+  .counter-num { font-family: 'DM Mono', monospace; font-size: 28px; font-weight: 500; color: var(--text); }
+  .counter-num span { color: var(--accent); }
+  .counter-label { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+  /* 이메일 폼 */
+  .email-form { display: flex; gap: 10px; max-width: 480px; margin: 0 auto 16px; }
+  .email-input { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; font-size: 15px; font-family: 'Noto Sans JP', sans-serif; color: var(--text); outline: none; transition: border-color 0.2s; }
+  .email-input::placeholder { color: var(--text3); }
+  .email-input:focus { border-color: var(--accent); }
+  .email-submit { background: linear-gradient(135deg, var(--accent), #6b5de8); border: none; border-radius: 10px; padding: 14px 24px; font-size: 15px; font-weight: 500; font-family: 'Noto Sans JP', sans-serif; color: #fff; cursor: pointer; white-space: nowrap; transition: all 0.2s; box-shadow: 0 0 24px rgba(124,109,250,0.3); }
+  .email-submit:hover { transform: translateY(-1px); box-shadow: 0 0 36px rgba(124,109,250,0.45); }
+  .email-notice { font-size: 12px; color: var(--text3); text-align: center; line-height: 1.8; }
+  .email-notice strong { color: var(--accent2); }
+  .success-msg { display: none; background: rgba(109,250,179,0.08); border: 1px solid rgba(109,250,179,0.25); border-radius: 12px; padding: 24px 28px; max-width: 480px; margin: 0 auto; text-align: center; }
+  .success-msg.show { display: block; }
+  .success-msg p { font-size: 16px; color: var(--accent3); margin-bottom: 6px; font-weight: 500; }
+  .success-msg span { font-size: 13px; color: var(--text2); }
+
+  /* COMPARE */
+  .compare-section { padding: 80px 0; }
+  .compare-table { width: 100%; border-collapse: collapse; margin-top: 40px; }
+  .compare-table th { font-size: 13px; font-weight: 500; color: var(--text2); padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border2); }
+  .compare-table th.highlight { color: var(--accent); background: rgba(124,109,250,0.06); }
+  .compare-table td { padding: 14px 16px; font-size: 14px; color: var(--text2); border-bottom: 1px solid var(--border2); vertical-align: middle; }
+  .compare-table td:first-child { color: var(--text); }
+  .compare-table td.highlight { background: rgba(124,109,250,0.04); color: var(--text); }
+  .check{color:var(--accent3)} .cross{color:var(--text3)} .partial{color:#ffbd2e;font-size:13px}
+
+  /* HOW */
+  .how-section { padding: 80px 0; }
+  .steps-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 32px; margin-top: 48px; position: relative; }
+  .steps-grid::before { content: ''; position: absolute; top: 28px; left: calc(16.66% + 16px); right: calc(16.66% + 16px); height: 1px; background: linear-gradient(90deg, var(--accent), var(--accent2)); opacity: 0.3; }
+  .step-card { text-align: center; }
+  .step-num { width: 56px; height: 56px; border-radius: 50%; background: var(--bg2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 500; color: var(--accent); position: relative; z-index: 1; }
+  .step-title { font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+  .step-desc { font-size: 13px; color: var(--text2); line-height: 1.7; }
+
+  /* PRICING */
+  .pricing-section { padding: 80px 0; }
+  .pricing-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 48px; }
+  .pricing-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: 16px; padding: 28px; position: relative; }
+  .pricing-card.featured { border-color: var(--accent); box-shadow: 0 0 40px rgba(124,109,250,0.12); }
+  .pricing-card.featured::before { content: '人気'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; font-size: 11px; font-weight: 500; padding: 3px 12px; border-radius: 99px; font-family: 'Noto Sans JP', sans-serif; }
+  .plan-name { font-size: 13px; color: var(--text2); font-family: 'DM Mono', monospace; margin-bottom: 10px; }
+  .plan-price-big { font-size: 40px; font-weight: 700; letter-spacing: -0.03em; color: var(--text); line-height: 1; margin-bottom: 4px; }
+  .plan-price-big span { font-size: 16px; font-weight: 400; color: var(--text2); }
+  .plan-price-sub { font-size: 12px; color: var(--text3); margin-bottom: 20px; font-family: 'DM Mono', monospace; }
+  .plan-divider { height: 1px; background: var(--border2); margin: 16px 0; }
+  .plan-feature-list { list-style: none; }
+  .plan-feature-list li { font-size: 13px; color: var(--text2); padding: 5px 0; display: flex; align-items: center; gap: 8px; }
+  .plan-feature-list li::before { content: '✓'; color: var(--accent3); font-size: 12px; }
+  .plan-feature-list li.dim { color: var(--text3); }
+  .plan-feature-list li.dim::before { content: '—'; color: var(--text3); }
+  .plan-btn { display: block; width: 100%; margin-top: 20px; padding: 12px; text-align: center; border-radius: 8px; font-size: 14px; font-family: 'Noto Sans JP', sans-serif; font-weight: 500; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+  .plan-btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+  .plan-btn-outline:hover { border-color: var(--accent); color: var(--text); }
+  .plan-btn-solid { background: var(--accent); border: none; color: #fff; box-shadow: 0 0 24px rgba(124,109,250,0.3); }
+  .plan-btn-solid:hover { background: #6b5de8; }
+  .early-badge { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--accent2); margin-top: 8px; justify-content: center; font-family: 'DM Mono', monospace; }
+  .early-badge::before { content: '★'; font-size: 10px; }
+
+  /* CTA */
+  .cta-section { padding: 100px 0; text-align: center; position: relative; }
+  .cta-section::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 600px; height: 400px; background: radial-gradient(ellipse, rgba(124,109,250,0.08) 0%, transparent 70%); pointer-events: none; }
+  .cta-section p { color: var(--text2); font-size: 17px; margin-bottom: 36px; line-height: 1.8; }
+
+  footer { border-top: 1px solid var(--border2); padding: 32px 0; }
+  .footer-inner { display: flex; justify-content: space-between; align-items: center; }
+  .footer-copy { font-size: 13px; color: var(--text3); font-family: 'DM Mono', monospace; }
+  .footer-links { display: flex; gap: 20px; }
+  .footer-links a { font-size: 13px; color: var(--text3); text-decoration: none; }
+  .footer-links a:hover { color: var(--text2); }
+
+  .fade-up { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .fade-up.visible { opacity: 1; transform: none; }
+
+  @media (max-width: 768px) {
+    .hero-inner { grid-template-columns: 1fr; gap: 48px; }
+    .hero-mockup { display: none; }
+    .stats-grid { grid-template-columns: repeat(2,1fr); }
+    .features-grid,.pricing-grid,.steps-grid,.benefits-row { grid-template-columns: 1fr; }
+    .steps-grid::before { display: none; }
+    .early-inner { padding: 36px 20px; }
+    .email-form { flex-direction: column; }
+    .counter-row { flex-direction: column; gap: 16px; }
+    .footer-inner { flex-direction: column; gap: 12px; }
+    .nav-cta a:not(.nav-btn) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-orb orb1"></div>
+<div class="bg-orb orb2"></div>
+<div class="bg-orb orb3"></div>
+
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="logo"><span class="logo-dot"></span>バズ予報</a>
+    <div class="nav-cta">
+      <a href="#features">機能</a>
+      <a href="#pricing">料金</a>
+      <a href="#early" class="nav-btn">事前登録する →</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-inner">
+      <div>
+        <div class="eyebrow">日本語YouTuber専用</div>
+        <h1>次にバズる動画を<br><span class="line2">AIが先読みする。</span></h1>
+        <p class="hero-desc">
+          日本のYouTubeデータをリアルタイム分析。<br>
+          <strong>チャンネル平均の10倍以上</strong>再生されたアウトライアー動画から、
+          あなたのチャンネルに合ったコンテンツアイデアをAIが自動生成します。
+        </p>
+        <div class="cta-group">
+          <a href="#early" class="btn-primary">事前登録で特典をもらう →</a>
+          <a href="#how" class="btn-secondary">仕組みを見る</a>
+        </div>
+      </div>
+      <div class="hero-mockup fade-up">
+        <div class="mockup-card">
+          <div class="mockup-header">
+            <div class="mockup-dots"><span></span><span></span><span></span></div>
+            <div class="mockup-title">buzz-yoho.app</div>
+          </div>
+          <div class="mockup-input-row">
+            <div class="mockup-input">料理 / Vlog / ゲーム...</div>
+            <button class="mockup-btn">予報する</button>
+          </div>
+          <div>
+            <div class="result-item">
+              <div class="result-top">
+                <div class="result-title">「1週間コンビニ飯だけで生活したら〇〇だった」</div>
+                <span class="result-badge badge-hot">HOT</span>
+              </div>
+              <div class="result-meta">平均比 +1,240% · ライフスタイル</div>
+            </div>
+            <div class="result-item">
+              <div class="result-top">
+                <div class="result-title">「プロが教えない〇〇の裏技5選」</div>
+                <span class="result-badge badge-viral">VIRAL</span>
+              </div>
+              <div class="result-meta">平均比 +820% · ハウツー</div>
+            </div>
+            <div class="result-item">
+              <div class="result-top">
+                <div class="result-title">「もう失敗しない！〇〇完全攻略ガイド」</div>
+                <span class="result-badge badge-new">NEW</span>
+              </div>
+              <div class="result-meta">平均比 +560% · 解説系</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats-strip">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-item fade-up"><span class="stat-num">10x</span><div class="stat-label">アウトライアー検出倍率</div></div>
+      <div class="stat-item fade-up"><span class="stat-num">30秒</span><div class="stat-label">アイデア生成にかかる時間</div></div>
+      <div class="stat-item fade-up"><span class="stat-num">¥500</span><div class="stat-label">月額スタートプラン</div></div>
+      <div class="stat-item fade-up"><span class="stat-num">100%</span><div class="stat-label">日本語完全対応</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-eyebrow">FEATURES</div>
+    <h2>4つの機能で<br>勝てるアイデアを発見</h2>
+    <p class="section-desc">海外ツールにはない、日本のYouTubeに特化した分析エンジンがあなたのチャンネルを後押しします。</p>
+    <div class="features-grid">
+      <div class="feature-card fade-up">
+        <span class="feature-icon">🔥</span>
+        <div class="feature-title">アウトライアー探索</div>
+        <div class="feature-desc">日本のYouTubeからチャンネル平均比10倍以上の再生数を記録した動画を自動収集。なぜバズったのかのパターンも分析します。</div>
+      </div>
+      <div class="feature-card fade-up">
+        <span class="feature-icon">💡</span>
+        <div class="feature-title">AIアイデア生成</div>
+        <div class="feature-desc">バズ動画を選ぶだけで、あなたのチャンネルジャンルに合わせた日本語の動画タイトル・企画アイデアをAIが瞬時に提案。</div>
+      </div>
+      <div class="feature-card fade-up">
+        <span class="feature-icon">🎯</span>
+        <div class="feature-title">ニッチ探索</div>
+        <div class="feature-desc">競合が少なく、視聴数が伸びやすい日本語カテゴリとテーマを自動推薦。ブルーオーシャンを先に見つけられます。</div>
+      </div>
+      <div class="feature-card fade-up">
+        <span class="feature-icon">📱</span>
+        <div class="feature-title">ショーツ専用探索</div>
+        <div class="feature-desc">YouTubeショーツに特化したバイラルフォーマットとフックパターンを独自フィルタリング。ショート動画戦略に最適。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 사전 가입자 섹션 -->
+<section class="early-section" id="early">
+  <div class="container">
+    <div class="early-inner fade-up">
+      <div class="early-glow"></div>
+      <div class="early-tag">期間限定 · 先行登録受付中</div>
+      <h2>今すぐ登録した人だけの<br><span>3つの特典</span></h2>
+      <p class="early-sub">
+        正式リリース前に登録してくれた方に、感謝を込めて特別な特典をご用意しました。
+        登録は<strong style="color:var(--text)">無料・30秒</strong>で完了します。
+      </p>
+      <div class="benefits-row">
+        <div class="benefit-card fade-up">
+          <div class="benefit-num">BENEFIT 01</div>
+          <span class="benefit-icon">🚀</span>
+          <div class="benefit-title">ベータ版を最初に体験</div>
+          <div class="benefit-desc">正式リリース前のベータ版に先着順でアクセス。誰より早くバズ予報を使えます。</div>
+          <span class="benefit-highlight">先着100名限定</span>
+        </div>
+        <div class="benefit-card fade-up">
+          <div class="benefit-num">BENEFIT 02</div>
+          <span class="benefit-icon">🎁</span>
+          <div class="benefit-title">スタンダード3ヶ月無料</div>
+          <div class="benefit-desc">正式リリース後、スタンダードプラン（¥500/月）を3ヶ月間完全無料でご利用いただけます。</div>
+          <span class="benefit-highlight">¥1,500相当</span>
+        </div>
+        <div class="benefit-card fade-up">
+          <div class="benefit-num">BENEFIT 03</div>
+          <span class="benefit-icon">♾️</span>
+          <div class="benefit-title">永久20%割引</div>
+          <div class="benefit-desc">3ヶ月無料終了後も、全プランが永久に20%オフ。ずっとお得に使い続けられます。</div>
+          <span class="benefit-highlight">ずっと適用</span>
+        </div>
+      </div>
+      <div class="counter-row">
+        <div class="counter-item">
+          <div class="counter-num"><span id="counter">47</span></div>
+          <div class="counter-label">名が登録済み</div>
+        </div>
+        <div class="counter-item">
+          <div class="counter-num"><span style="color:var(--accent2)">53</span></div>
+          <div class="counter-label">名分の枠が残っています</div>
+        </div>
+      </div>
+
+      <!-- 구글 폼 연동 -->
+      <div id="form-area">
+        <form class="email-form" id="reg-form">
+          <input type="email" class="email-input" placeholder="メールアドレスを入力" required id="email-input">
+          <button type="submit" class="email-submit">特典つきで登録 →</button>
+        </form>
+        <p class="email-notice">
+          スパムは送りません。リリース時に1通だけお知らせします。<br>
+          登録者には <strong>ベータ版招待 + 3ヶ月無料 + 永久20%割引</strong> が適用されます。
+        </p>
+      </div>
+      <div class="success-msg" id="success-msg">
+        <p>🎉 登録が完了しました！</p>
+        <span>リリース時にメールでご連絡します。ベータ版の招待をお楽しみに。</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section class="compare-section">
+  <div class="container">
+    <div class="section-eyebrow">COMPARISON</div>
+    <h2>なぜバズ予報なのか</h2>
+    <table class="compare-table">
+      <thead>
+        <tr><th>機能</th><th>VidIQ</th><th>1of10</th><th class="highlight">バズ予報</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>日本語UI</td><td><span class="partial">△ 部分対応</span></td><td><span class="cross">✕ なし</span></td><td class="highlight"><span class="check">✓ 完全対応</span></td></tr>
+        <tr><td>日本YouTubeデータ特化</td><td><span class="cross">✕</span></td><td><span class="cross">✕</span></td><td class="highlight"><span class="check">✓</span></td></tr>
+        <tr><td>無料プラン</td><td><span class="check">✓</span></td><td><span class="cross">✕ なし</span></td><td class="highlight"><span class="check">✓</span></td></tr>
+        <tr><td>月額料金（最安）</td><td>¥1,100〜</td><td>¥4,500〜</td><td class="highlight" style="color:var(--accent3);font-weight:500">¥500〜</td></tr>
+        <tr><td>初心者向けシンプルUI</td><td><span class="cross">✕ 複雑</span></td><td><span class="cross">✕ 難しい</span></td><td class="highlight"><span class="check">✓</span></td></tr>
+        <tr><td>ショーツ専用探索</td><td><span class="cross">✕</span></td><td><span class="check">✓</span></td><td class="highlight"><span class="check">✓</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- HOW -->
+<section class="how-section" id="how">
+  <div class="container">
+    <div class="section-eyebrow">HOW IT WORKS</div>
+    <h2>3ステップで<br>今日のアイデアが決まる</h2>
+    <div class="steps-grid">
+      <div class="step-card fade-up">
+        <div class="step-num">01</div>
+        <div class="step-title">ジャンルを入力</div>
+        <div class="step-desc">料理・ゲーム・Vlogなど、あなたのチャンネルジャンルを日本語で入力するだけ。</div>
+      </div>
+      <div class="step-card fade-up">
+        <div class="step-num">02</div>
+        <div class="step-title">バズ動画を選ぶ</div>
+        <div class="step-desc">AIが検出したアウトライアー動画の一覧から、気になる動画をワンクリックで選択。</div>
+      </div>
+      <div class="step-card fade-up">
+        <div class="step-num">03</div>
+        <div class="step-title">アイデアをゲット</div>
+        <div class="step-desc">30秒以内にあなたのチャンネル向けの日本語タイトル・企画案がずらりと並びます。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing-section" id="pricing">
+  <div class="container">
+    <div class="section-eyebrow">PRICING</div>
+    <h2>シンプルな料金プラン</h2>
+    <div class="pricing-grid">
+      <div class="pricing-card fade-up">
+        <div class="plan-name">FREE</div>
+        <div class="plan-price-big">¥0</div>
+        <div class="plan-price-sub">永久無料</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-feature-list">
+          <li>アウトライアー探索 1日3回</li>
+          <li>AIアイデア生成 月10件</li>
+          <li>基本カテゴリ 3ジャンル</li>
+          <li class="dim">ショーツ専用探索</li>
+          <li class="dim">ニッチ探索</li>
+        </ul>
+        <a href="#early" class="plan-btn plan-btn-outline">無料で始める</a>
+      </div>
+      <div class="pricing-card featured fade-up">
+        <div class="plan-name">STANDARD</div>
+        <div class="plan-price-big">¥500<span>/月</span></div>
+        <div class="plan-price-sub">≒ 約4,500ウォン</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-feature-list">
+          <li>アウトライアー探索 無制限</li>
+          <li>AIアイデア生成 月100件</li>
+          <li>全カテゴリ対応</li>
+          <li>ショーツ専用探索</li>
+          <li class="dim">ニッチ探索</li>
+        </ul>
+        <a href="#early" class="plan-btn plan-btn-solid">今すぐ試す</a>
+        <div class="early-badge">事前登録で3ヶ月無料 + 永久20%OFF</div>
+      </div>
+      <div class="pricing-card fade-up">
+        <div class="plan-name">PRO</div>
+        <div class="plan-price-big">¥1,200<span>/月</span></div>
+        <div class="plan-price-sub">≒ 約11,000ウォン</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-feature-list">
+          <li>スタンダード全機能</li>
+          <li>AIアイデア生成 無制限</li>
+          <li>ニッチ探索</li>
+          <li>競合チャンネル分析</li>
+          <li>優先サポート</li>
+        </ul>
+        <a href="#early" class="plan-btn plan-btn-outline">プロを試す</a>
+        <div class="early-badge">事前登録で永久20%OFF</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="container">
+    <div class="section-eyebrow">GET STARTED</div>
+    <h2>今日から、バズを<br>予報しよう。</h2>
+    <p>事前登録は無料・30秒。クレジットカード不要。<br>今すぐ3つの特典を受け取ってください。</p>
+    <a href="#early" class="btn-primary" style="display:inline-flex;font-size:16px;padding:16px 36px;">
+      特典つきで事前登録 →
+    </a>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-copy">© 2026 バズ予報 — β版 準備中</div>
+      <div class="footer-links">
+        <a href="#">プライバシーポリシー</a>
+        <a href="#">利用規約</a>
+        <a href="#">お問い合わせ</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  /* 스크롤 페이드인 */
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+
+    /* Google Apps Script 연동 — 완전 자동 이메일 수집 */
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbzAJbUUF_DcStS00gSZS8fJ9ZHdLYD7MB6Opyjdvv1EkCLj4EFnhxAQyaVAHz_8Mpe-/exec';
+
+  document.getElementById('reg-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const email = document.getElementById('email-input').value.trim();
+    if (!email) return;
+
+    const btn = this.querySelector('.email-submit');
+    btn.textContent = '送信中...';
+    btn.disabled = true;
+
+    try {
+      await fetch(GAS_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=' + encodeURIComponent(email)
+      });
+    } catch(err) {
+      console.log('전송 완료 (no-cors)');
+    }
+
+    /* UI 전환 */
+    document.getElementById('form-area').style.display = 'none';
+    document.getElementById('success-msg').classList.add('show');
+    const el = document.getElementById('counter');
+    if (el) el.textContent = parseInt(el.textContent) + 1;
+  });
+
+  /* 카운터 자연스럽게 올라가는 효과 */
+  let base = 47;
+  setInterval(() => {
+    if (Math.random() > 0.7) {
+      base = Math.min(base + 1, 94);
+      const el = document.getElementById('counter');
+      if (el) el.textContent = base;
+    }
+  }, 8000);
+</script>
+
+</body>
+</html>
