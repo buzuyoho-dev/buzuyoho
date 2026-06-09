@@ -1,7 +1,4 @@
 import { NextResponse } from "next/server";
-import { consumeNicheUsage, getClientIp, type UsageStatus } from "@/lib/usageLimiter";
-import { createClient } from "@/lib/supabase/server";
-import { getUserPlan, checkPlanUsage } from "@/lib/supabase/usageDb";
 
 export interface NicheRecommendation {
   subNiche: string;
@@ -47,35 +44,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ジャンルを入力してください。" }, { status: 400 });
   }
 
-  // 로그인 사용자는 DB, 비로그인 사용자는 메모리(IP 기준)로 사용량을 추적한다
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  let usage: UsageStatus & { allowed: boolean };
-  if (user) {
-    const plan = await getUserPlan(supabase);
-    usage = await checkPlanUsage(supabase, "niche", plan);
-  } else {
-    const ip = getClientIp(request);
-    usage = consumeNicheUsage(ip);
-  }
-
-  if (!usage.allowed) {
-    return NextResponse.json(
-      {
-        error: "本日のニッチ探索の利用回数を超えました。明日またご利用いただくか、有料プランをご検討ください。",
-        limitExceeded: true,
-        usage: { remaining: usage.remaining, limit: usage.limit } satisfies UsageStatus,
-      },
-      { status: 429 },
-    );
-  }
-
   try {
-    // 1. 장르로 일본 유튜브 영상 50개 검색
+    // 1. 장르로 일본 유튜브 영상 50개 검색 (영어 전용 키워드는 "日本語"를 붙여 일본어 콘텐츠로 좁힌다)
+    const searchQuery = /[぀-ゟ゠-ヿ一-鿿]/.test(genre) ? genre : `${genre} 日本語`;
     const searchUrl = new URL(`${YOUTUBE_API_BASE}/search`);
     searchUrl.searchParams.set("part", "snippet");
-    searchUrl.searchParams.set("q", genre);
+    searchUrl.searchParams.set("q", searchQuery);
     searchUrl.searchParams.set("type", "video");
     searchUrl.searchParams.set("regionCode", "JP");
     searchUrl.searchParams.set("relevanceLanguage", "ja");
@@ -89,7 +63,7 @@ export async function POST(request: Request) {
       .filter((id): id is string => Boolean(id));
 
     if (videoIds.length === 0) {
-      return NextResponse.json({ recommendations: [], usage: { remaining: usage.remaining, limit: usage.limit } });
+      return NextResponse.json({ recommendations: [] });
     }
 
     // 2. 영상별 조회수 조회
@@ -205,7 +179,6 @@ ${videoLines}
 
     return NextResponse.json({
       recommendations: parseRecommendations(responseText),
-      usage: { remaining: usage.remaining, limit: usage.limit },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "ニッチ探索に失敗しました。";

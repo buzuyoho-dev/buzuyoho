@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createHmac } from "crypto";
 import { stripe, PLAN_BY_PRICE_ID } from "@/lib/stripe";
 import type Stripe from "stripe";
 
@@ -18,29 +17,6 @@ export async function POST(request: Request) {
 
   if (!signature) {
     return NextResponse.json({ error: "署名がありません。" }, { status: 400 });
-  }
-
-  // 진단 로그: 직접 HMAC 계산으로 불일치 원인 확인
-  const secretPrefix = process.env.STRIPE_WEBHOOK_SECRET?.slice(0, 14) ?? "(없음)";
-  console.log("[Webhook] secret prefix:", secretPrefix);
-  console.log("[Webhook] body bytes:", body.length);
-  console.log("[Webhook] sig header:", signature.slice(0, 60));
-
-  // 수동 HMAC 검증
-  const sigParts = Object.fromEntries(
-    signature.split(",").map((p) => p.split("=", 2) as [string, string])
-  );
-  const timestamp = sigParts["t"];
-  const incomingV1 = sigParts["v1"];
-  if (timestamp && incomingV1) {
-    const signedPayload = `${timestamp}.${body.toString("utf8")}`;
-    const computedSig = createHmac("sha256", process.env.STRIPE_WEBHOOK_SECRET!)
-      .update(signedPayload, "utf8")
-      .digest("hex");
-    console.log("[Webhook] computed:", computedSig.slice(0, 20));
-    console.log("[Webhook] expected:", incomingV1.slice(0, 20));
-    console.log("[Webhook] match:", computedSig === incomingV1);
-    console.log("[Webhook] body preview:", body.toString("utf8").slice(0, 120));
   }
 
   let event: Stripe.Event;

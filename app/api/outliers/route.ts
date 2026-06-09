@@ -1,7 +1,4 @@
 import { NextResponse } from "next/server";
-import { consumeOutlierUsage, getClientIp, type UsageStatus } from "@/lib/usageLimiter";
-import { createClient } from "@/lib/supabase/server";
-import { getUserPlan, checkPlanUsage } from "@/lib/supabase/usageDb";
 
 export interface OutlierVideo {
   videoId: string;
@@ -62,38 +59,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ジャンルを入力してください。" }, { status: 400 });
   }
 
-  // 로그인 사용자는 DB, 비로그인 사용자는 메모리(IP 기준)로 사용량을 추적한다
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  let usage: UsageStatus & { allowed: boolean };
-  if (user) {
-    const plan = await getUserPlan(supabase);
-    usage = await checkPlanUsage(supabase, "outlier", plan);
-  } else {
-    const ip = getClientIp(request);
-    usage = consumeOutlierUsage(ip);
-  }
-
-  if (!usage.allowed) {
-    return NextResponse.json(
-      {
-        error: "本日の無料利用回数を超えました。明日またご利用いただくか、有料プランをご検討ください。",
-        limitExceeded: true,
-        usage: { remaining: usage.remaining, limit: usage.limit } satisfies UsageStatus,
-      },
-      { status: 429 },
-    );
-  }
-
   try {
     // 1. 장르 키워드로 최근 90일 내 일본 영상 검색
-    // 검색어가 일본어가 아니면 일본어 번역어를 함께 붙여서 검색 정확도를 높인다 (예: "game" → "ゲーム game")
+    // 영어 전용 키워드는 번역어를 앞에 붙이고 "日本語"를 추가해 일본어 콘텐츠로 좁힌다
     let searchQuery = genre;
     if (!containsJapanese(genre)) {
+      searchQuery = `${genre} 日本語`;
       const translated = await translateToJapanese(genre);
       if (translated && containsJapanese(translated)) {
-        searchQuery = `${translated} ${genre}`;
+        searchQuery = `${translated} ${genre} 日本語`;
       }
     }
 
@@ -121,7 +95,7 @@ export async function POST(request: Request) {
       .filter((id): id is string => Boolean(id));
 
     if (videoIds.length === 0) {
-      return NextResponse.json({ outliers: [], usage: { remaining: usage.remaining, limit: usage.limit } });
+      return NextResponse.json({ outliers: [] });
     }
 
     // 2. 검색된 영상들의 상세 통계(조회수) 조회
@@ -190,7 +164,7 @@ export async function POST(request: Request) {
       return b.multiplierPercent - a.multiplierPercent;
     });
 
-    return NextResponse.json({ outliers, usage: { remaining: usage.remaining, limit: usage.limit } });
+    return NextResponse.json({ outliers });
   } catch (err) {
     const message = err instanceof Error ? err.message : "予報に失敗しました。";
     return NextResponse.json({ error: message }, { status: 500 });

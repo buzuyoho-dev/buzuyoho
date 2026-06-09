@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import MascotBubble from "@/app/components/MascotBubble";
 import { createClient } from "@/lib/supabase/client";
 
 interface PlanData {
@@ -134,10 +135,8 @@ export default function MyPage() {
       <div className="mx-auto max-w-2xl">
         {/* 결제 성공 메시지 */}
         {paymentSuccess && (
-          <div className="mb-8 rounded-lg border border-[#7c6dfa]/30 bg-[#7c6dfa]/10 px-4 py-4 text-center">
-            <p className="text-sm font-medium text-[#7c6dfa]">
-              お支払いが完了しました！プランが有効になりました。
-            </p>
+          <div className="mb-8 flex justify-center">
+            <MascotBubble image="thanks.png" text="ありがとうございます！プランが有効になりました🎉" />
           </div>
         )}
 

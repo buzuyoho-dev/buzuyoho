@@ -5,6 +5,7 @@ import type { OutlierVideo } from "./api/outliers/route";
 import type { IdeaResult } from "./api/idea/route";
 import type { NicheRecommendation } from "./api/niche/route";
 import type { UsageStatus } from "@/lib/usageLimiter";
+import MascotBubble from "./components/MascotBubble";
 
 type ActiveTab = "outlier" | "niche";
 
@@ -19,6 +20,7 @@ interface UsageState {
   outlier: UsageStatus;
   idea: UsageStatus;
   niche: UsageStatus;
+  plan?: "free" | "standard" | "pro";
 }
 
 export default function Home() {
@@ -45,7 +47,7 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/usage")
       .then((res) => res.json())
-      .then((data) => setUsage({ outlier: data.outlier, idea: data.idea, niche: data.niche }))
+      .then((data) => setUsage({ outlier: data.outlier, idea: data.idea, niche: data.niche, plan: data.plan ?? "free" }))
       .catch(() => {});
   }, []);
 
@@ -171,6 +173,40 @@ export default function Home() {
         ? "分析中..."
         : "ニッチを探す";
 
+  // マスコット状態
+  const activeResults = activeTab === "outlier" ? outliers : niches;
+  const hasResults = activeResults !== null && activeResults.length > 0;
+  const noResults = activeResults !== null && activeResults.length === 0;
+  const plan = usage?.plan ?? "free";
+
+  let mascotImage: string;
+  let mascotText: string;
+  if (isCurrentlyLoading) {
+    mascotImage = "loading.png";
+    mascotText = "バズ動画をリサーチ中...";
+  } else if (currentLimitReached) {
+    mascotImage = "sad.png";
+    mascotText = "今日の無料回数を使い切りました😢また明日ね！";
+  } else if (noResults) {
+    mascotImage = "thinking.png";
+    mascotText = "う〜ん、見つかりませんでした。別のジャンルを試してみてください";
+  } else if (hasResults) {
+    const count = activeResults!.length;
+    if (plan === "free" && usageRemaining !== null && usageRemaining <= 1) {
+      mascotImage = "try.png";
+      mascotText = "もっと使いたい方はアップグレードがおすすめです！";
+    } else {
+      mascotImage = "idea.png";
+      mascotText =
+        activeTab === "outlier"
+          ? `${count}件のバズ動画を見つけました！`
+          : `${count}件の穴場ジャンルを見つけました！`;
+    }
+  } else {
+    mascotImage = "hello.png";
+    mascotText = "こんにちは！今日はどんなジャンルを調べますか？";
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center bg-[#0a0a0f] px-4 py-20">
       <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
@@ -202,11 +238,30 @@ export default function Home() {
 
         <p className="text-lg text-[#e8e6f0]">ジャンルを入力してください</p>
 
+        <div className="flex flex-wrap justify-center gap-2">
+          {["ゲーム", "料理・グルメ", "Vlog・日常", "メイク・美容", "テクノロジー"].map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => setGenre(tag)}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                genre === tag
+                  ? "border-[#7c6dfa] bg-[#7c6dfa]/20 text-[#7c6dfa]"
+                  : "border-[#7c6dfa]/20 text-[#e8e6f0]/50 hover:border-[#7c6dfa]/50 hover:text-[#e8e6f0]/80"
+              }`}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+
         {usage && (
           <p className={`text-xs ${currentLimitReached ? "text-red-400" : "text-[#e8e6f0]/50"}`}>
             {currentLimitReached
               ? limitMessage
-              : `本日あと${usageRemaining}回利用できます`}
+              : usageRemaining === 9999
+                ? "本日の利用回数：無制限"
+                : `本日あと${usageRemaining}回利用できます`}
           </p>
         )}
 
@@ -238,51 +293,44 @@ export default function Home() {
         )}
       </div>
 
+      {/* マスコット */}
+      <div className="mt-10 flex w-full max-w-md justify-center">
+        <MascotBubble image={mascotImage} text={mascotText} />
+      </div>
+
       {/* アウトライアー探索 결과 */}
-      {activeTab === "outlier" && outliers && (
+      {activeTab === "outlier" && outliers && outliers.length > 0 && (
         <div className="mt-16 w-full max-w-6xl">
-          {outliers.length === 0 ? (
-            <p className="text-center text-sm text-[#e8e6f0]/60">
-              アウトライアー動画が見つかりませんでした。別のジャンルで試してください。
+          {ideaLimitReached && (
+            <p className="mb-6 text-center text-xs text-red-400">
+              今月の無料アイデア生成回数の上限に達しました。来月またご利用いただくか、有料プランをご検討ください。
             </p>
-          ) : (
-            <>
-              {ideaLimitReached && (
-                <p className="mb-6 text-center text-xs text-red-400">
-                  今月の無料アイデア生成回数の上限に達しました。来月またご利用いただくか、有料プランをご検討ください。
-                </p>
-              )}
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {outliers.map((video) => (
-                  <OutlierCard
-                    key={video.videoId}
-                    video={video}
-                    onGenerateIdea={handleGenerateIdea}
-                    ideaDisabled={ideaLimitReached}
-                  />
-                ))}
-              </div>
-            </>
           )}
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {outliers.map((video) => (
+              <OutlierCard
+                key={video.videoId}
+                video={video}
+                onGenerateIdea={handleGenerateIdea}
+                ideaDisabled={ideaLimitReached}
+              />
+            ))}
+          </div>
         </div>
       )}
 
       {/* ニッチ探索 결과 */}
-      {activeTab === "niche" && niches && (
+      {activeTab === "niche" && niches && niches.length > 0 && (
         <div className="mt-16 w-full max-w-3xl">
-          {niches.length === 0 ? (
-            <p className="text-center text-sm text-[#e8e6f0]/60">
-              ニッチジャンルが見つかりませんでした。別のジャンルで試してください。
-            </p>
-          ) : (
-            <div className="flex flex-col gap-5">
-              {niches.map((niche, i) => (
-                <NicheCard key={i} niche={niche} />
-              ))}
-            </div>
-          )}
+          <div className="flex flex-col gap-5">
+            {niches.map((niche, i) => (
+              <NicheCard key={i} niche={niche} />
+            ))}
+          </div>
         </div>
       )}
+
+      <FaqSection />
 
       {ideaModal && (
         <IdeaModal
@@ -361,6 +409,85 @@ function NicheCard({ niche }: { niche: NicheRecommendation }) {
   );
 }
 
+const FAQ_ITEMS = [
+  {
+    q: "バズ予報って何ですか？",
+    a: "日本のYouTuberさん向けのAIコンテンツアイデア発掘ツールです。「今週何を撮ればいい？」という悩みを30秒で解決します。日本のYouTubeデータをリアルタイムで分析し、今バズっている動画のパターンをもとに、あなたのチャンネルに合った企画アイデアを自動生成します。",
+  },
+  {
+    q: "「アウトライアー」って何ですか？",
+    a: "チャンネルの平均再生数と比べて突出して多く再生された動画のことです。たとえば普段1万回再生のチャンネルで、ある動画だけ100万回再生されていたら、それがアウトライアーです。バズ予報ではこの「なぜかバズった動画」を自動検出し、バズった理由をAIが分析します。",
+  },
+  {
+    q: "「ニッチ探索」って何ですか？",
+    a: "競合が少ないのに需要がある分野を探す機能です。「料理」という広いジャンルは競合が多すぎますが、「一人暮らし×節約×時短料理」のように絞り込むと競合が少なく、熱心な視聴者を集めやすくなります。まだ誰も参入していない穴場ジャンルをAIが提案します。",
+  },
+  {
+    q: "AIが生成するアイデアはどんな内容ですか？",
+    a: "バズった動画を選ぶと以下の4つを自動生成します。①なぜバズったのかの分析　②動画タイトル案5個　③サムネイルのコンセプト　④最初の30秒のフック（導入）スクリプト",
+  },
+  {
+    q: "無料で使えますか？",
+    a: "はい、クレジットカード登録不要で今すぐ無料で始められます。無料プランでは1日3回のアウトライアー探索と月10回のAIアイデア生成をご利用いただけます。",
+  },
+  {
+    q: "各プランの違いは何ですか？",
+    a: "フリー（無料）は1日3回探索・月10回アイデア生成、スタンダード（¥500/月）は探索無制限・月100回アイデア生成、プロ（¥1,200/月）は全機能完全無制限＋競合チャンネル分析です。",
+  },
+  {
+    q: "いつでも解約できますか？",
+    a: "はい、マイページからいつでも解約できます。違約金・解約手数料は一切かかりません。解約後は次回更新日まで有料プランをご利用いただけます。",
+  },
+];
+
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-[#7c6dfa]/10 last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between gap-4 py-4 text-left"
+      >
+        <span className="text-sm text-[#e8e6f0]/80">{q}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          className={`shrink-0 text-[#7c6dfa] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        >
+          <path
+            d="M2.5 5l4.5 4.5L11.5 5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {open && (
+        <p className="pb-4 pr-6 text-sm leading-relaxed text-[#e8e6f0]/50">{a}</p>
+      )}
+    </div>
+  );
+}
+
+function FaqSection() {
+  return (
+    <div className="mt-24 w-full max-w-xl">
+      <h2 className="mb-5 text-center text-sm font-medium tracking-wide text-[#e8e6f0]/40">
+        よくある質問
+      </h2>
+      <div className="rounded-xl border border-[#7c6dfa]/10 bg-[#0d0d14] px-5">
+        {FAQ_ITEMS.map((item) => (
+          <FaqItem key={item.q} q={item.q} a={item.a} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function IdeaModal({
   video,
   loading,
@@ -400,7 +527,9 @@ function IdeaModal({
 
         <div className="overflow-y-auto p-6">
           {loading && (
-            <p className="py-16 text-center text-sm text-[#e8e6f0]/70">AIが分析中です...</p>
+            <div className="flex justify-center py-10">
+              <MascotBubble image="analyzing.png" text="AIがアイデアを生成中..." />
+            </div>
           )}
           {error && <p className="text-sm text-red-400">{error}</p>}
           {idea && (
