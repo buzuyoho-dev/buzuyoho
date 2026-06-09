@@ -122,18 +122,35 @@ function buildPrompt({
 }`;
 }
 
-// Claude의 응답 텍스트에서 JSON 객체 부분만 추출해 파싱한다 (코드블록 등으로 감싸 응답하는 경우 대비)
+// Claude 응답 텍스트에서 JSON 후보를 순서대로 추출해 파싱한다
+// 1순위: ```json ... ``` 마크다운 코드블록
+// 2순위: ``` ... ``` 일반 코드블록
+// 3순위: { ... } 중괄호 범위 전체
 function parseIdeaResult(text: string): IdeaResult {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) {
-    throw new Error("AIの応答を解析できませんでした。");
+  const candidates: string[] = [];
+
+  const jsonBlock = text.match(/```json\s*([\s\S]*?)```/);
+  if (jsonBlock) candidates.push(jsonBlock[1].trim());
+
+  const codeBlock = text.match(/```\s*([\s\S]*?)```/);
+  if (codeBlock) candidates.push(codeBlock[1].trim());
+
+  const braceBlock = text.match(/\{[\s\S]*\}/);
+  if (braceBlock) candidates.push(braceBlock[0]);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      return {
+        viralAnalysis: String(parsed.viralAnalysis ?? ""),
+        titleIdeas: Array.isArray(parsed.titleIdeas) ? parsed.titleIdeas.map(String) : [],
+        thumbnailConcept: String(parsed.thumbnailConcept ?? ""),
+        hookScript: String(parsed.hookScript ?? ""),
+      };
+    } catch {
+      // 다음 후보로 계속
+    }
   }
 
-  const parsed = JSON.parse(match[0]);
-  return {
-    viralAnalysis: String(parsed.viralAnalysis ?? ""),
-    titleIdeas: Array.isArray(parsed.titleIdeas) ? parsed.titleIdeas.map(String) : [],
-    thumbnailConcept: String(parsed.thumbnailConcept ?? ""),
-    hookScript: String(parsed.hookScript ?? ""),
-  };
+  throw new Error("アイデアの生成に失敗しました。もう一度お試しください。");
 }
