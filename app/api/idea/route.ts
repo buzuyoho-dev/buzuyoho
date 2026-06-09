@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { consumeIdeaUsage, getClientIp, type UsageStatus } from "@/lib/usageLimiter";
+import { getClientIp, type UsageStatus } from "@/lib/usageLimiter";
 import { createClient } from "@/lib/supabase/server";
-import { getUserPlan, checkPlanUsage } from "@/lib/supabase/usageDb";
+import { getUserPlan, checkPlanUsage, consumeIpUsage } from "@/lib/supabase/usageDb";
 
 export interface IdeaResult {
   viralAnalysis: string;
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     usage = await checkPlanUsage(supabase, "idea", plan);
   } else {
     const ip = getClientIp(request);
-    usage = consumeIdeaUsage(ip);
+    usage = await consumeIpUsage("idea", ip);
   }
 
   if (!usage.allowed) {

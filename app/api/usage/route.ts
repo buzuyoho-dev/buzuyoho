@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getClientIp, getIdeaUsage, getNicheUsage, getOutlierUsage } from "@/lib/usageLimiter";
+import { getClientIp, OUTLIER_DAILY_LIMIT, NICHE_DAILY_LIMIT } from "@/lib/usageLimiter";
 import { createClient } from "@/lib/supabase/server";
-import { getUserPlan, getPlanUsageStatus } from "@/lib/supabase/usageDb";
+import { getUserPlan, getPlanUsageStatus, getIpUsageStatus } from "@/lib/supabase/usageDb";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -19,9 +19,10 @@ export async function GET(request: Request) {
   }
 
   const ip = getClientIp(request);
+  const idea = await getIpUsageStatus("idea", ip);
   return NextResponse.json({
-    outlier: getOutlierUsage(ip),
-    idea: getIdeaUsage(ip),
-    niche: getNicheUsage(ip),
+    outlier: { remaining: OUTLIER_DAILY_LIMIT, limit: OUTLIER_DAILY_LIMIT },
+    idea,
+    niche: { remaining: NICHE_DAILY_LIMIT, limit: NICHE_DAILY_LIMIT },
   });
 }
