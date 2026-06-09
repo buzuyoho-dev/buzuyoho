@@ -27,42 +27,115 @@
 - 환경변수: `ANTHROPIC_API_KEY` (`.env.local`, 입력 완료)
 
 ### 4. 요금제별 사용량 제한 (무료 플랜)
-- `lib/usageLimiter.ts`: IP 주소 기준 무료 이용 횟수 추적 (로그인 불필요)
-  - 아웃라이어 탐색: 하루 3회 (`OUTLIER_DAILY_LIMIT`), AI 아이디어 생성: 월 10회 (`IDEA_MONTHLY_LIMIT`)
-  - 서버 메모리(`Map`)에 저장 (추후 Supabase 등 DB로 교체 예정 — 서버 재시작 시 초기화됨)
-  - `globalThis`에 Map 인스턴스를 고정해두는 싱글톤 패턴 적용 — Next.js(Turbopack) dev 모드에서 라우트 파일별로 모듈이 따로 인스턴스화되어 카운트가 공유되지 않던 문제를 해결 (Prisma client 싱글톤과 동일한 방식)
+- `lib/usageLimiter.ts`: IP 주소 기준 무료 이용 횟수 추적 (비로그인용)
+  - 아웃라이어 탐색: 하루 3회, AI 아이디어 생성: 월 10회, 니치 탐색: 하루 2회
+  - `globalThis` 싱글톤 패턴 — Next.js Turbopack dev 모드에서 라우트 파일별 모듈 재인스턴스화 문제 해결
   - `getClientIp`: `x-forwarded-for` → `x-real-ip` 순으로 클라이언트 IP 추출
 - `app/api/usage/route.ts`: 현재 IP 기준 남은 횟수 조회 API (`GET /api/usage`)
-- `app/api/outliers/route.ts`, `app/api/idea/route.ts`: 요청 처리 전에 한도 확인 → 초과 시 외부 API(YouTube/Claude) 호출 없이 즉시 429 응답 + 일본어 안내 메시지 반환, 정상 처리 시 응답에 남은 횟수 포함
-- `app/page.tsx`: 페이지 진입 시 `/api/usage`로 남은 횟수 조회 → 상단에 `本日あと2回利用できます` 형태로 표시
-  - 한도 초과 시 빨간색으로 `本日の無料利用回数を超えました。明日またご利用いただくか、有料プランをご検討ください。` 메시지 표시, `予報する`/`このネタでアイデアを生成` 버튼 비활성화
+- `app/api/outliers/route.ts`, `app/api/idea/route.ts`: 한도 초과 시 429 응답 + 일본어 안내 메시지
 
-### 5. 검색 정확도 개선 (일본어 입력 유도 + YouTube 검색 필터 강화)
-- `app/page.tsx`: 입력창 아래에 안내 힌트 추가
-  - `💡 日本語で入力するとより精度が上がります（例：料理、ゲーム、旅行）`
-  - 작은 글씨, 색상 `#9490b0`(텍스트2)로 강요하지 않는 톤 유지
-- `app/api/outliers/route.ts`: 검색 정확도를 높이기 위한 로직 추가
-  - `regionCode: 'JP'`, `relevanceLanguage: 'ja'` 고정 유지
-  - `containsJapanese()`: 히라가나/가타카나/한자 포함 여부 검사 헬퍼
-  - `translateToJapanese()`: 검색어가 일본어가 아니면 Claude API로 짧은 일본어 키워드로 번역해 원래 검색어와 함께 검색 (예: `"game"` → `"ゲーム game"`로 검색, 번역 실패 시 원래 검색어 그대로 사용)
-  - 결과 정렬 시 영상 제목에 일본어가 포함된 영상을 우선 배치하되, 일본어 영상이 부족해도 JP 지역의 다른 영상은 제외하지 않고 그대로 포함
+### 5. 검색 정확도 개선 (일본어 필터 강화)
+- 입력창 아래 `💡 日本語で入力するとより精度が上がります` 힌트 표시
+- `containsJapanese()`: 히라가나/가타카나/한자 포함 여부 검사
+- `translateToJapanese()`: 비일본어 입력 → Claude API로 일본어 키워드 번역 후 결합 검색
+- 결과 정렬 시 일본어 제목 영상 우선 배치
+
+### 6. 니치 탐색 기능
+- `app/api/niche/route.ts`: YouTube Data API + Claude API 연동
+  - 구독자 10만 미만 소형 채널에서 조회수 1만 이상 영상 추출 (`opportunityScore`)
+  - 데이터 부족 시 threshold 자동 완화 (구독자 50만/조회수 5천)로 재시도
+  - Claude API로 서브니치 3개 JSON 추천 (`subNiche`, `description`, `difficulty`, `potentialViewCount`, `contentIdeas`)
+- `app/page.tsx`: [アウトライアー探索] / [ニッチ探索] 탭 UI 추가
+  - `NicheCard` 컴포넌트: 경쟁도 배지(競合低め/競合普通), 기대 재생수, 콘텐츠 아이디어 3개
+
+### 7. 회원가입/로그인 (Supabase 연동)
+- `lib/supabase/client.ts`: `createBrowserClient` (클라이언트 컴포넌트용)
+- `lib/supabase/server.ts`: `createServerClient` + `next/headers` 쿠키 (서버용)
+- `lib/supabase/usageDb.ts`: DB 기반 사용량 추적 헬퍼
+  - `consumeDbUsage()`: `consume_feature_usage` RPC 호출 (원자적 증가)
+  - `getDbUsageStatus()`: 현재 사용량 조회 (소비 없음)
+- `proxy.ts`: Supabase 세션 쿠키 자동 갱신 (Next.js 16에서 `middleware.ts` deprecated → `proxy.ts`로 교체, `proxy` 함수명으로 export 필요)
+  - `/api/stripe/webhook` 경로는 matcher에서 제외 — 미들웨어가 Request를 재구성하면 raw body가 손상되어 Stripe 서명 검증 실패
+- `app/auth/page.tsx`: 로그인/회원가입 페이지 (다크 테마)
+  - 이메일+비밀번호 탭 전환 (ログイン / 新規登録)
+  - Google OAuth 버튼 (G 컬러 아이콘)
+  - 회원가입 성공 시 「バズ予報へようこそ！」 환영 메시지
+  - 에러 메시지 일본어 변환 (`translateError`)
+- `app/auth/callback/route.ts`: Google OAuth 인가 코드 → 세션 교환 후 `/` 리다이렉트
+- `app/components/Header.tsx`: 전역 헤더 (sticky, backdrop-blur)
+  - 비로그인: [ログイン] 버튼 (→ /auth)
+  - 로그인: 이메일 표시 + [マイページ] + [ログアウト]
+  - `onAuthStateChange`로 실시간 상태 반영
+- `app/layout.tsx`: Header + `<main>` 구조로 변경
+- 모든 API 라우트: 로그인 사용자는 Supabase DB, 비로그인은 서버 메모리(IP 기준) 분리 추적
+- `supabase/schema.sql`: `user_usage` 테이블 + RLS + `consume_feature_usage()` Postgres 함수
+
+### 8. Stripe 결제 연동
+- `lib/stripe.ts`: Stripe SDK 인스턴스 (`apiVersion: "2026-05-27.dahlia"`) + 가격 ID → 플랜명 매핑
+- `supabase/add_user_plans.sql`: `user_plans` 테이블 + RLS (SELECT만 허용, 쓰기는 service_role)
+- `lib/supabase/usageDb.ts` 확장:
+  - `getUserPlan()`: 활성 구독 기반 플랜 반환 (`'free' | 'standard' | 'pro'`)
+  - `getPlanLimit()`: 플랜별 한도 (standard: idea 100/월 외 무제한 / pro: 전체 무제한 → limit≥9999이면 DB 호출 생략)
+  - `checkPlanUsage()`, `getPlanUsageStatus()`: 플랜 인식 사용량 소비/조회
+- 모든 API 라우트: `getUserPlan()` → `checkPlanUsage()` 통합 (로그인 시 DB, 비로그인 시 메모리)
+- `app/api/plan/route.ts`: `GET /api/plan` — 현재 플랜/상태/갱신일 조회
+- `app/api/stripe/checkout/route.ts`: Checkout 세션 생성 (로그인 필수, 기존 customer ID 재사용, locale: "ja")
+- `app/api/stripe/portal/route.ts`: Customer Portal 세션 생성 (구독 관리/해약, return_url: /mypage)
+- `app/api/stripe/webhook/route.ts`: 웹훅 서명 검증 + 이벤트 처리
+  - `Buffer.from(await request.arrayBuffer())` 사용 — `request.text()` 대신 사용해야 인코딩 차이 없이 정확한 바이트 전달
+  - `checkout.session.completed` → user_plans upsert
+  - `customer.subscription.updated` → 플랜/상태 갱신
+  - `customer.subscription.deleted` → plan='free' 복귀
+  - `supabaseAdmin` (service_role 키) 로 RLS 우회
+- `app/mypage/page.tsx`: 마이페이지
+  - 현재 플랜 배지 (フリー/スタンダード/プロ) + 갱신일
+  - 사용량 현황 바 (무제한이면 "無制限" 표시, 90% 이상이면 빨간색)
+  - 유료 미가입 시 업그레이드 카드 (スタンダード ¥500/プロ ¥1,200)
+  - 유료 가입 시 "プランを解約する" → Stripe Portal
+  - 스탠다드 가입 시 프로 업그레이드 카드 추가 표시
+  - 결제 완료 후 `/mypage?payment=success` 시 성공 메시지
+- `app/components/Header.tsx`: 로그인 시 이메일(→/mypage 링크) + [マイページ] + [ログアウト]
+
+## 환경변수 현황 (`.env.local`)
+| 변수명 | 상태 |
+|--------|------|
+| `YOUTUBE_API_KEY` | ✅ 설정 완료 |
+| `ANTHROPIC_API_KEY` | ✅ 설정 완료 |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ 설정 완료 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ 설정 완료 |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ 설정 완료 |
+| `STRIPE_SECRET_KEY` | ✅ 설정 완료 |
+| `STRIPE_WEBHOOK_SECRET` | ✅ 설정 완료 (`stripe listen` 실행 시 발급된 값, 세션 재시작 시 갱신 필요) |
+| `NEXT_PUBLIC_STRIPE_STANDARD_PRICE_ID` | ✅ 설정 완료 |
+| `NEXT_PUBLIC_STRIPE_PRO_PRICE_ID` | ✅ 설정 완료 |
+
+## Supabase 설정 (대시보드에서 직접 실행 필요)
+- [ ] `supabase/schema.sql` — SQL Editor에서 실행 (user_usage 테이블 + consume_feature_usage 함수)
+- [ ] `supabase/add_user_plans.sql` — SQL Editor에서 실행 (user_plans 테이블)
+- [ ] Authentication > Providers > Google — Google OAuth 클라이언트 ID/시크릿 설정
 
 ## 검증 상태
-- `tsc --noEmit` 타입 체크 통과
-- Playwright로 전체 플로우(검색 → 카드 표시 → 아이디어 생성 모달 → 로딩/에러 표시) 스크린샷 확인 완료
-- 실제 키로 아이디어 생성 기능까지 end-to-end 동작 확인 완료 (분석/제목안 5개/썸네일 콘셉트/훅 스크립트가 모달에 정상 렌더링됨)
-- 사용량 제한 기능: API 레벨에서 3회 호출 후 4번째 호출이 429 + 한도 초과 메시지로 차단되는 것을 확인, `globalThis` 싱글톤 적용 후 `/api/usage`가 `/api/outliers`/`/api/idea` 소비 내역과 정확히 동기화되는 것을 확인
-- Playwright 스크린샷으로 UI 검증 완료: 평상시 `本日あと2回利用できます` 표시(연한 회색), 한도 초과 시 빨간색 안내 문구 + `予報する` 버튼 비활성화(`disabled=true`) 확인
-- 검색 정확도 개선: 영어 검색어 `"game"` 입력 시 `"ゲーム game"`으로 번역·결합되어 검색되는 것을 확인, 결과 7건 중 일본어 제목 4건이 상단에 정렬되고 나머지 JP 지역 영상도 제외되지 않고 포함되는 것을 확인. 안내 힌트 문구는 Playwright로 색상(`rgb(148,144,176)` = `#9490b0`) 및 텍스트 렌더링 확인 완료
+- Playwright 스크린샷으로 메인/로그인/신규등록 UI 확인 완료
+- 비로그인 `/mypage` 접근 시 `/auth` 자동 리다이렉트 확인
+- API 엔드포인트 상태:
+  - `GET /api/plan` → `{"plan":"free","status":null,...}` ✅
+  - `GET /api/usage` → `{"outlier":{"remaining":3,"limit":3},...}` ✅
+  - `POST /api/stripe/checkout` 비로그인 → 401 "ログインが必要です" ✅
+  - `POST /api/stripe/portal` 비로그인 → 401 "ログインが必要です" ✅
+  - `POST /api/stripe/webhook` 서명 없음 → 400 "署名がありません" ✅
+- 웹훅 서명 검증: `STRIPE_WEBHOOK_SECRET`이 현재 실행 중인 `stripe listen` 세션과 일치해야 통과
+  - `stripe listen` 재시작 시 새 `whsec_...` 발급 → `.env.local` 갱신 + 서버 재시작 필요
+
+## 알려진 이슈
+- `STRIPE_WEBHOOK_SECRET` 불일치: `stripe listen`을 재시작하면 새 시크릿이 발급됨
+  - 해결: `stripe listen --forward-to localhost:3000/api/stripe/webhook` 재실행 → 출력된 `whsec_...` 값으로 `.env.local` 업데이트
 
 ## 개발 환경
-- Git 설치 및 `git init` 완료 (저장소: `C:\Users\ritch\buzuyoho`)
-- `.env.local`(API 키 포함)이 `.gitignore`의 `.env*` 패턴으로 정상 제외되는 것 확인
-- 사용량 제한 카운터는 메모리 저장이라 개발 중 초기화가 필요하면 dev 서버 재시작으로 리셋 가능
+- Git 저장소: `C:\Users\ritch\buzuyoho`
+- `.env.local`은 `.gitignore`의 `.env*` 패턴으로 커밋에서 제외됨
+- 로컬 결제 테스트: `stripe listen --forward-to localhost:3000/api/stripe/webhook` 실행 중 유지 필요
+- Stripe 테스트 카드: `4242 4242 4242 4242` / 만료 `12/34` / CVC `123`
 
-## 다음 작업 후보 (MVP 핵심 기능 중 미구현)
-- 니치 탐색: 경쟁이 낮고 조회수 높은 일본어 카테고리 추천
+## 다음 작업 후보
 - 쇼츠 전용 탐색: 일본 유튜브 쇼츠 바이럴 포맷 필터링
-- 회원가입/로그인 (Supabase 연동)
-- 결제 연동 (Stripe)
-- 사용량 제한을 서버 메모리 → Supabase DB로 교체 (서버 재시작 시 초기화되는 문제 해결)
+- Vercel 배포 (프로덕션 웹훅은 Stripe 대시보드에 엔드포인트 등록 필요)

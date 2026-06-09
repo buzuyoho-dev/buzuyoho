@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { consumeIdeaUsage, getClientIp, type UsageStatus } from "@/lib/usageLimiter";
+import { createClient } from "@/lib/supabase/server";
+import { getUserPlan, checkPlanUsage } from "@/lib/supabase/usageDb";
 
 export interface IdeaResult {
   viralAnalysis: string;
@@ -30,9 +32,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "動画情報が正しくありません。" }, { status: 400 });
   }
 
-  // 무료 이용 횟수(월 10回)를 먼저 확인한다 — 한도 초과 시 Claude APIを呼び出さない
-  const ip = getClientIp(request);
-  const usage = consumeIdeaUsage(ip);
+  // 로그인 사용자는 DB, 비로그인 사용자는 메모리(IP 기준)로 사용량을 추적한다
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  let usage: UsageStatus & { allowed: boolean };
+  if (user) {
+    const plan = await getUserPlan(supabase);
+    usage = await checkPlanUsage(supabase, "idea", plan);
+  } else {
+    const ip = getClientIp(request);
+    usage = consumeIdeaUsage(ip);
+  }
+
   if (!usage.allowed) {
     return NextResponse.json(
       {

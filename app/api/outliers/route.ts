@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { consumeOutlierUsage, getClientIp, type UsageStatus } from "@/lib/usageLimiter";
+import { createClient } from "@/lib/supabase/server";
+import { getUserPlan, checkPlanUsage } from "@/lib/supabase/usageDb";
 
 export interface OutlierVideo {
   videoId: string;
@@ -60,9 +62,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ジャンルを入力してください。" }, { status: 400 });
   }
 
-  // 무료 이용 횟수(하루 3回)를 먼저 확인한다 — 한도 초과 시 YouTube API를 호출하지 않는다
-  const ip = getClientIp(request);
-  const usage = consumeOutlierUsage(ip);
+  // 로그인 사용자는 DB, 비로그인 사용자는 메모리(IP 기준)로 사용량을 추적한다
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  let usage: UsageStatus & { allowed: boolean };
+  if (user) {
+    const plan = await getUserPlan(supabase);
+    usage = await checkPlanUsage(supabase, "outlier", plan);
+  } else {
+    const ip = getClientIp(request);
+    usage = consumeOutlierUsage(ip);
+  }
+
   if (!usage.allowed) {
     return NextResponse.json(
       {

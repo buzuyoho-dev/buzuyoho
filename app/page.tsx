@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import type { OutlierVideo } from "./api/outliers/route";
 import type { IdeaResult } from "./api/idea/route";
+import type { NicheRecommendation } from "./api/niche/route";
 import type { UsageStatus } from "@/lib/usageLimiter";
+
+type ActiveTab = "outlier" | "niche";
 
 interface IdeaModalState {
   video: OutlierVideo;
@@ -15,33 +18,41 @@ interface IdeaModalState {
 interface UsageState {
   outlier: UsageStatus;
   idea: UsageStatus;
+  niche: UsageStatus;
 }
-
-const OUTLIER_LIMIT_MESSAGE =
-  "本日の無料利用回数を超えました。明日またご利用いただくか、有料プランをご検討ください。";
-const IDEA_LIMIT_MESSAGE =
-  "今月の無料アイデア生成回数の上限に達しました。来月またご利用いただくか、有料プランをご検討ください。";
 
 export default function Home() {
   const [genre, setGenre] = useState("");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("outlier");
+
+  // アウトライアー探索 state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outliers, setOutliers] = useState<OutlierVideo[] | null>(null);
+
+  // ニッチ探索 state
+  const [nicheLoading, setNicheLoading] = useState(false);
+  const [nicheError, setNicheError] = useState<string | null>(null);
+  const [niches, setNiches] = useState<NicheRecommendation[] | null>(null);
+
+  // アイデア生成モーダル state
   const [ideaModal, setIdeaModal] = useState<IdeaModalState | null>(null);
+
+  // 사용량 state
   const [usage, setUsage] = useState<UsageState | null>(null);
 
-  // 화면 진입 시 현재 IP 기준 남은 무료 이용 횟수를 가져온다
+  // 화면 진입 시 IP 기준 남은 무료 이용 횟수를 가져온다
   useEffect(() => {
     fetch("/api/usage")
       .then((res) => res.json())
-      .then((data) => setUsage({ outlier: data.outlier, idea: data.idea }))
+      .then((data) => setUsage({ outlier: data.outlier, idea: data.idea, niche: data.niche }))
       .catch(() => {});
   }, []);
 
-  // 입력한 장르로 아웃라이어 영상을 검색해서 결과를 화면에 표시한다
+  // 아웃라이어 탐색 실행
   const handleForecast = async () => {
     const trimmedGenre = genre.trim();
-    if (!trimmedGenre || loading || (usage && usage.outlier.remaining <= 0)) return;
+    if (!trimmedGenre || loading || outlierLimitReached) return;
 
     setLoading(true);
     setError(null);
@@ -59,10 +70,7 @@ export default function Home() {
         setUsage((prev) => (prev ? { ...prev, outlier: data.usage as UsageStatus } : prev));
       }
 
-      if (!res.ok) {
-        throw new Error(data?.error ?? "予報に失敗しました。");
-      }
-
+      if (!res.ok) throw new Error(data?.error ?? "予報に失敗しました。");
       setOutliers(data.outliers as OutlierVideo[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "予報に失敗しました。");
@@ -71,9 +79,39 @@ export default function Home() {
     }
   };
 
-  // 선택한 아웃라이어 영상 정보를 Claude APIに送ってアイデアを生成し、モーダルに表示する
+  // 니치 탐색 실행
+  const handleNicheSearch = async () => {
+    const trimmedGenre = genre.trim();
+    if (!trimmedGenre || nicheLoading || nicheLimitReached) return;
+
+    setNicheLoading(true);
+    setNicheError(null);
+    setNiches(null);
+
+    try {
+      const res = await fetch("/api/niche", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ genre: trimmedGenre }),
+      });
+      const data = await res.json();
+
+      if (data?.usage) {
+        setUsage((prev) => (prev ? { ...prev, niche: data.usage as UsageStatus } : prev));
+      }
+
+      if (!res.ok) throw new Error(data?.error ?? "ニッチ探索に失敗しました。");
+      setNiches(data.recommendations as NicheRecommendation[]);
+    } catch (err) {
+      setNicheError(err instanceof Error ? err.message : "ニッチ探索に失敗しました。");
+    } finally {
+      setNicheLoading(false);
+    }
+  };
+
+  // 아이디어 생성 모달 열기
   const handleGenerateIdea = async (video: OutlierVideo) => {
-    if (usage && usage.idea.remaining <= 0) return;
+    if (ideaLimitReached) return;
 
     setIdeaModal({ video, loading: true, error: null, idea: null });
 
@@ -94,10 +132,7 @@ export default function Home() {
         setUsage((prev) => (prev ? { ...prev, idea: data.usage as UsageStatus } : prev));
       }
 
-      if (!res.ok) {
-        throw new Error(data?.error ?? "アイデア生成に失敗しました。");
-      }
-
+      if (!res.ok) throw new Error(data?.error ?? "アイデア生成に失敗しました。");
       setIdeaModal({ video, loading: false, error: null, idea: data.idea as IdeaResult });
     } catch (err) {
       setIdeaModal({
@@ -111,22 +146,76 @@ export default function Home() {
 
   const outlierLimitReached = Boolean(usage && usage.outlier.remaining <= 0);
   const ideaLimitReached = Boolean(usage && usage.idea.remaining <= 0);
+  const nicheLimitReached = Boolean(usage && usage.niche.remaining <= 0);
+
+  // 현재 탭 기준 상태값 계산
+  const isCurrentlyLoading = activeTab === "outlier" ? loading : nicheLoading;
+  const currentLimitReached = activeTab === "outlier" ? outlierLimitReached : nicheLimitReached;
+  const usageRemaining = usage
+    ? activeTab === "outlier"
+      ? usage.outlier.remaining
+      : usage.niche.remaining
+    : null;
+  const limitMessage =
+    activeTab === "outlier"
+      ? "本日の無料利用回数を超えました。明日またご利用いただくか、有料プランをご検討ください。"
+      : "本日のニッチ探索の利用回数を超えました。明日またご利用いただくか、有料プランをご検討ください。";
+
+  const handleSubmit = activeTab === "outlier" ? handleForecast : handleNicheSearch;
+  const buttonLabel =
+    activeTab === "outlier"
+      ? loading
+        ? "予報中..."
+        : "予報する"
+      : nicheLoading
+        ? "分析中..."
+        : "ニッチを探す";
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-[#0a0a0f] px-4 py-20">
       <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
+        {/* 탭 전환 버튼 */}
+        <div className="flex w-full gap-1 rounded-lg bg-[#13131a] p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("outlier")}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "outlier"
+                ? "bg-[#7c6dfa] text-[#0a0a0f]"
+                : "text-[#e8e6f0]/60 hover:text-[#e8e6f0]"
+            }`}
+          >
+            アウトライアー探索
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("niche")}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "niche"
+                ? "bg-[#7c6dfa] text-[#0a0a0f]"
+                : "text-[#e8e6f0]/60 hover:text-[#e8e6f0]"
+            }`}
+          >
+            ニッチ探索
+          </button>
+        </div>
+
         <p className="text-lg text-[#e8e6f0]">ジャンルを入力してください</p>
+
         {usage && (
-          <p className={`text-xs ${outlierLimitReached ? "text-red-400" : "text-[#e8e6f0]/50"}`}>
-            {outlierLimitReached ? OUTLIER_LIMIT_MESSAGE : `本日あと${usage.outlier.remaining}回利用できます`}
+          <p className={`text-xs ${currentLimitReached ? "text-red-400" : "text-[#e8e6f0]/50"}`}>
+            {currentLimitReached
+              ? limitMessage
+              : `本日あと${usageRemaining}回利用できます`}
           </p>
         )}
+
         <input
           type="text"
           value={genre}
           onChange={(e) => setGenre(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleForecast();
+            if (e.key === "Enter") handleSubmit();
           }}
           placeholder="例：料理、ゲーム、旅行..."
           className="w-full rounded-lg border border-[#7c6dfa]/40 bg-[#0a0a0f] px-4 py-3 text-[#e8e6f0] placeholder:text-[#e8e6f0]/40 outline-none transition-colors focus:border-[#7c6dfa]"
@@ -136,16 +225,21 @@ export default function Home() {
         </p>
         <button
           type="button"
-          onClick={handleForecast}
-          disabled={loading || !genre.trim() || outlierLimitReached}
+          onClick={handleSubmit}
+          disabled={isCurrentlyLoading || !genre.trim() || currentLimitReached}
           className="w-full rounded-lg bg-[#7c6dfa] px-4 py-3 font-medium text-[#0a0a0f] transition-colors hover:bg-[#7c6dfa]/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "予報中..." : "予報する"}
+          {buttonLabel}
         </button>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+
+        {activeTab === "outlier" && error && <p className="text-sm text-red-400">{error}</p>}
+        {activeTab === "niche" && nicheError && (
+          <p className="text-sm text-red-400">{nicheError}</p>
+        )}
       </div>
 
-      {outliers && (
+      {/* アウトライアー探索 결과 */}
+      {activeTab === "outlier" && outliers && (
         <div className="mt-16 w-full max-w-6xl">
           {outliers.length === 0 ? (
             <p className="text-center text-sm text-[#e8e6f0]/60">
@@ -154,7 +248,9 @@ export default function Home() {
           ) : (
             <>
               {ideaLimitReached && (
-                <p className="mb-6 text-center text-xs text-red-400">{IDEA_LIMIT_MESSAGE}</p>
+                <p className="mb-6 text-center text-xs text-red-400">
+                  今月の無料アイデア生成回数の上限に達しました。来月またご利用いただくか、有料プランをご検討ください。
+                </p>
               )}
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {outliers.map((video) => (
@@ -167,6 +263,23 @@ export default function Home() {
                 ))}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* ニッチ探索 결과 */}
+      {activeTab === "niche" && niches && (
+        <div className="mt-16 w-full max-w-3xl">
+          {niches.length === 0 ? (
+            <p className="text-center text-sm text-[#e8e6f0]/60">
+              ニッチジャンルが見つかりませんでした。別のジャンルで試してください。
+            </p>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {niches.map((niche, i) => (
+                <NicheCard key={i} niche={niche} />
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -212,6 +325,37 @@ function OutlierCard({
         >
           このネタでアイデアを生成
         </button>
+      </div>
+    </div>
+  );
+}
+
+function NicheCard({ niche }: { niche: NicheRecommendation }) {
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-[#7c6dfa]/20 bg-[#13131a] p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-base font-semibold text-[#e8e6f0]">{niche.subNiche}</h3>
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+            niche.difficulty === "low"
+              ? "bg-emerald-500/15 text-emerald-400"
+              : "bg-yellow-500/15 text-yellow-400"
+          }`}
+        >
+          {niche.difficulty === "low" ? "競合低め" : "競合普通"}
+        </span>
+        <span className="text-xs text-[#9490b0]">期待再生数: {niche.potentialViewCount}</span>
+      </div>
+      <p className="text-sm leading-relaxed text-[#e8e6f0]/80">{niche.description}</p>
+      <div>
+        <p className="mb-2 text-xs font-medium text-[#7c6dfa]">コンテンツアイデア</p>
+        <ul className="flex flex-col gap-1.5">
+          {niche.contentIdeas.map((idea, i) => (
+            <li key={i} className="rounded-md bg-[#0a0a0f] px-3 py-2 text-sm text-[#e8e6f0]/80">
+              {idea}
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

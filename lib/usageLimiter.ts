@@ -4,6 +4,7 @@
 
 export const OUTLIER_DAILY_LIMIT = 3;
 export const IDEA_MONTHLY_LIMIT = 10;
+export const NICHE_DAILY_LIMIT = 2;
 
 interface UsageRecord {
   count: number;
@@ -16,12 +17,15 @@ interface UsageRecord {
 const globalForUsage = globalThis as unknown as {
   __buzuyohoOutlierUsage?: Map<string, UsageRecord>;
   __buzuyohoIdeaUsage?: Map<string, UsageRecord>;
+  __buzuyohoNicheUsage?: Map<string, UsageRecord>;
 };
 
 const outlierUsage = globalForUsage.__buzuyohoOutlierUsage ?? new Map<string, UsageRecord>();
 const ideaUsage = globalForUsage.__buzuyohoIdeaUsage ?? new Map<string, UsageRecord>();
+const nicheUsage = globalForUsage.__buzuyohoNicheUsage ?? new Map<string, UsageRecord>();
 globalForUsage.__buzuyohoOutlierUsage = outlierUsage;
 globalForUsage.__buzuyohoIdeaUsage = ideaUsage;
+globalForUsage.__buzuyohoNicheUsage = nicheUsage;
 
 function dailyKey(now: Date): string {
   return now.toISOString().slice(0, 10); // YYYY-MM-DD
@@ -85,6 +89,21 @@ export function consumeIdeaUsage(ip: string): UsageConsumeResult {
   }
   const newUsed = increment(ideaUsage, ip, periodKey);
   return { allowed: true, remaining: Math.max(0, IDEA_MONTHLY_LIMIT - newUsed), limit: IDEA_MONTHLY_LIMIT };
+}
+
+export function getNicheUsage(ip: string): UsageStatus {
+  const used = currentCount(nicheUsage, ip, dailyKey(new Date()));
+  return { remaining: Math.max(0, NICHE_DAILY_LIMIT - used), limit: NICHE_DAILY_LIMIT };
+}
+
+export function consumeNicheUsage(ip: string): UsageConsumeResult {
+  const periodKey = dailyKey(new Date());
+  const used = currentCount(nicheUsage, ip, periodKey);
+  if (used >= NICHE_DAILY_LIMIT) {
+    return { allowed: false, remaining: 0, limit: NICHE_DAILY_LIMIT };
+  }
+  const newUsed = increment(nicheUsage, ip, periodKey);
+  return { allowed: true, remaining: Math.max(0, NICHE_DAILY_LIMIT - newUsed), limit: NICHE_DAILY_LIMIT };
 }
 
 // 프록시/로드밸런서를 거치는 환경을 고려해 x-forwarded-for를 우선 사용한다.
