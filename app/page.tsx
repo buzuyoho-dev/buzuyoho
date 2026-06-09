@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import type { OutlierVideo } from "./api/outliers/route";
 import type { IdeaResult } from "./api/idea/route";
 import type { NicheRecommendation } from "./api/niche/route";
 import type { UsageStatus } from "@/lib/usageLimiter";
 import MascotBubble from "./components/MascotBubble";
+import { createClient } from "@/lib/supabase/client";
 
 type ActiveTab = "outlier" | "niche";
 
@@ -24,6 +28,10 @@ interface UsageState {
 }
 
 export default function Home() {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
   const [genre, setGenre] = useState("");
   const [activeTab, setActiveTab] = useState<ActiveTab>("outlier");
 
@@ -54,10 +62,22 @@ export default function Home() {
     }
   };
 
-  useEffect(() => { refreshUsage(); }, []);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+      setAuthReady(true);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      setUser(session?.user ?? null);
+    });
+    refreshUsage();
+    return () => subscription.unsubscribe();
+  }, []);
 
   // 아웃라이어 탐색 실행
   const handleForecast = async () => {
+    if (!user) { router.push("/auth"); return; }
     const trimmedGenre = genre.trim();
     if (!trimmedGenre || loading || outlierLimitReached) return;
 
@@ -85,6 +105,7 @@ export default function Home() {
 
   // 니치 탐색 실행
   const handleNicheSearch = async () => {
+    if (!user) { router.push("/auth"); return; }
     const trimmedGenre = genre.trim();
     if (!trimmedGenre || nicheLoading || nicheLimitReached) return;
 
@@ -274,6 +295,14 @@ export default function Home() {
         <p className="text-xs text-[#9490b0]">
           💡 日本語で入力するとより精度が上がります（例：料理、ゲーム、旅行）
         </p>
+        {authReady && !user && (
+          <Link
+            href="/auth"
+            className="text-xs text-[#7c6dfa] hover:underline"
+          >
+            ログインして無料で使ってみる →
+          </Link>
+        )}
         <button
           type="button"
           onClick={handleSubmit}
