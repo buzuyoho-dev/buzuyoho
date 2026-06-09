@@ -43,13 +43,18 @@ export default function Home() {
   // 사용량 state
   const [usage, setUsage] = useState<UsageState | null>(null);
 
-  // 화면 진입 시 IP 기준 남은 무료 이용 횟수를 가져온다
-  useEffect(() => {
-    fetch("/api/usage")
-      .then((res) => res.json())
-      .then((data) => setUsage({ outlier: data.outlier, idea: data.idea, niche: data.niche, plan: data.plan ?? "free" }))
-      .catch(() => {});
-  }, []);
+  // Supabase DB에서 최신 사용량을 가져온다
+  const refreshUsage = async () => {
+    try {
+      const res = await fetch("/api/usage");
+      const data = await res.json();
+      setUsage({ outlier: data.outlier, idea: data.idea, niche: data.niche, plan: data.plan ?? "free" });
+    } catch {
+      // 실패해도 기존 표시 유지
+    }
+  };
+
+  useEffect(() => { refreshUsage(); }, []);
 
   // 아웃라이어 탐색 실행
   const handleForecast = async () => {
@@ -68,12 +73,9 @@ export default function Home() {
       });
       const data = await res.json();
 
-      if (data?.usage) {
-        setUsage((prev) => (prev ? { ...prev, outlier: data.usage as UsageStatus } : prev));
-      }
-
       if (!res.ok) throw new Error(data?.error ?? "予報に失敗しました。");
       setOutliers(data.outliers as OutlierVideo[]);
+      await refreshUsage();
     } catch (err) {
       setError(err instanceof Error ? err.message : "予報に失敗しました。");
     } finally {
@@ -98,12 +100,9 @@ export default function Home() {
       });
       const data = await res.json();
 
-      if (data?.usage) {
-        setUsage((prev) => (prev ? { ...prev, niche: data.usage as UsageStatus } : prev));
-      }
-
       if (!res.ok) throw new Error(data?.error ?? "ニッチ探索に失敗しました。");
       setNiches(data.recommendations as NicheRecommendation[]);
+      await refreshUsage();
     } catch (err) {
       setNicheError(err instanceof Error ? err.message : "ニッチ探索に失敗しました。");
     } finally {
@@ -130,12 +129,9 @@ export default function Home() {
       });
       const data = await res.json();
 
-      if (data?.usage) {
-        setUsage((prev) => (prev ? { ...prev, idea: data.usage as UsageStatus } : prev));
-      }
-
       if (!res.ok) throw new Error(data?.error ?? "アイデア生成に失敗しました。");
       setIdeaModal({ video, loading: false, error: null, idea: data.idea as IdeaResult });
+      await refreshUsage();
     } catch (err) {
       setIdeaModal({
         video,
