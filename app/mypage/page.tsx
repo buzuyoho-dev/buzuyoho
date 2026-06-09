@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MascotBubble from "@/app/components/MascotBubble";
 import { createClient } from "@/lib/supabase/client";
@@ -57,6 +57,14 @@ const UPGRADE_PLANS = [
 ];
 
 export default function MyPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0a0f]" />}>
+      <MyPageContent />
+    </Suspense>
+  );
+}
+
+function MyPageContent() {
   const [planData, setPlanData] = useState<PlanData | null>(null);
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
